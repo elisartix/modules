@@ -183,6 +183,12 @@ class AccountManagerMod(loader.Module):
             await asyncio.sleep(self._update_interval)
             await self._check_self_update()
 
+    async def accupdcmd(self, message):
+        """Force update this module from remote"""
+        await self._check_self_update()
+        with contextlib.suppress(Exception):
+            await message.delete()
+
     async def client_ready(self, client, db):
         self._client = client
         self._db = db
