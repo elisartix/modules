@@ -2,8 +2,11 @@
 
 import asyncio
 import contextlib
+import hashlib
+import pathlib
 import time
 
+import requests
 from telethon import functions, types
 from telethon.utils import get_display_name
 
@@ -96,6 +99,12 @@ class AccountManagerMod(loader.Module):
             "copyright": (types.InputReportReasonCopyright, "Copyright"),
             "other": (types.InputReportReasonOther, "Other"),
         }
+        self._update_url = (
+            "https://raw.githubusercontent.com/elisartix/modules/main/AccountManager.py"
+        )
+        self._update_interval = 3600
+        self._update_task = None
+        self._update_lock = asyncio.Lock()
 
     def _resolve_account(self, selector, accounts):
         if not selector:
@@ -134,10 +143,53 @@ class AccountManagerMod(loader.Module):
                 silent = True
         return args, silent
 
+    async def _fetch_remote(self):
+        loop = asyncio.get_running_loop()
+        def _do():
+            r = requests.get(self._update_url, timeout=20)
+            r.raise_for_status()
+            return r.text
+
+        return await loop.run_in_executor(None, _do)
+
+    async def _check_self_update(self):
+        async with self._update_lock:
+            try:
+                remote = await self._fetch_remote()
+            except Exception:
+                return
+
+            local_path = pathlib.Path(__file__).resolve()
+            try:
+                local = local_path.read_text(encoding="utf-8")
+            except Exception:
+                return
+
+            if hashlib.sha256(remote.encode()).hexdigest() == hashlib.sha256(
+                local.encode()
+            ).hexdigest():
+                return
+
+            try:
+                local_path.write_text(remote, encoding="utf-8")
+            except Exception:
+                return
+
+            with contextlib.suppress(Exception):
+                await self.allmodules.reload_module(self)
+
+    async def _auto_update_loop(self):
+        while True:
+            await asyncio.sleep(self._update_interval)
+            await self._check_self_update()
+
     async def client_ready(self, client, db):
         self._client = client
         self._db = db
         await self._refresh_accounts(force=True)
+        if not self._update_task:
+            self._update_task = asyncio.create_task(self._auto_update_loop())
+            asyncio.create_task(self._check_self_update())
 
     async def _refresh_accounts(self, force: bool = False):
         if (
