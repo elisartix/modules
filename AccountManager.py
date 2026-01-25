@@ -556,20 +556,20 @@ class AccountManagerMod(loader.Module):
             [accounts[acc_idx]] if acc_idx is not None else accounts
         )
 
-        # Interleave across accounts: 1,2,3,1,2,3...
+        # Interleave across accounts: 1,2,3,1,2,... total messages == count
         for i in range(count):
-            for acc in target_accounts:
-                try:
-                    await acc["client"].send_message(
-                        message.chat_id,
-                        text,
-                        reply_to=reply_to,
-                    )
-                except Exception:
-                    pass
-                if len(target_accounts) > 1:
-                    await asyncio.sleep(0.15)
-            if count > 3:
+            acc = target_accounts[i % len(target_accounts)]
+            try:
+                await acc["client"].send_message(
+                    message.chat_id,
+                    text,
+                    reply_to=reply_to,
+                )
+            except Exception:
+                pass
+            if len(target_accounts) > 1:
+                await asyncio.sleep(0.15)
+            if count > 3 and i % len(target_accounts) == len(target_accounts) - 1:
                 await asyncio.sleep(0.1)
 
         if silent:
