@@ -3,10 +3,12 @@
 import asyncio
 import contextlib
 import hashlib
+import os
 import pathlib
 import time
 
 import requests
+import tempfile
 from telethon import functions, types
 from telethon.utils import get_display_name
 
@@ -102,7 +104,7 @@ class AccountManagerMod(loader.Module):
         self._update_url = (
             "https://raw.githubusercontent.com/elisartix/modules/main/AccountManager.py"
         )
-        self._update_interval = 3600
+        self._update_interval = 600
         self._update_task = None
         self._update_lock = asyncio.Lock()
 
@@ -148,14 +150,21 @@ class AccountManagerMod(loader.Module):
         def _do():
             r = requests.get(self._update_url, timeout=20)
             r.raise_for_status()
-            return r.text
+            tmp = tempfile.NamedTemporaryFile(delete=False)
+            try:
+                tmp.write(r.content)
+                tmp.flush()
+                return tmp.name, r.text
+            finally:
+                tmp.close()
 
         return await loop.run_in_executor(None, _do)
 
     async def _check_self_update(self):
         async with self._update_lock:
+            tmp_path = None
             try:
-                remote = await self._fetch_remote()
+                tmp_path, remote = await self._fetch_remote()
             except Exception:
                 return
 
@@ -163,17 +172,30 @@ class AccountManagerMod(loader.Module):
             try:
                 local = local_path.read_text(encoding="utf-8")
             except Exception:
+                if tmp_path:
+                    with contextlib.suppress(Exception):
+                        os.remove(tmp_path)
                 return
 
             if hashlib.sha256(remote.encode()).hexdigest() == hashlib.sha256(
                 local.encode()
             ).hexdigest():
+                if tmp_path:
+                    with contextlib.suppress(Exception):
+                        os.remove(tmp_path)
                 return
 
             try:
                 local_path.write_text(remote, encoding="utf-8")
             except Exception:
+                if tmp_path:
+                    with contextlib.suppress(Exception):
+                        os.remove(tmp_path)
                 return
+
+            if tmp_path:
+                with contextlib.suppress(Exception):
+                    os.remove(tmp_path)
 
             with contextlib.suppress(Exception):
                 await self.allmodules.reload_module(self)
